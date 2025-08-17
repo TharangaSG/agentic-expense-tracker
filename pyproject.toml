@@ -9,4 +9,5 @@ dependencies = [
     "ipykernel>=6.30.1",
     "openai>=1.99.1",
     "psycopg2-binary>=2.9.10",
+    "pydantic-settings>=2.10.1",
 ]

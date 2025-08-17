@@ -6,9 +6,6 @@ def get_spending_for_item_last_week(item_name: str) -> str:
     Queries the 'receipts_final.db' database to find the total all-time amount spent 
     on a specific item.
     
-    NOTE: This function no longer filters by date due to the absence of a 
-    'transaction_date' column. It sums all matching entries.
-    
     Args:
         item_name: The name of the item to query (e.g., 'soda').
         

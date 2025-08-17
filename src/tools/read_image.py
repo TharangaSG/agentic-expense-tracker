@@ -3,18 +3,13 @@ import base64
 import requests
 from openai import OpenAI
 from typing import Union, Dict
+from src.settings import settings
+from src.utils.clients import groq_client
 
-try:
-    groq_api_key = os.environ.get("GROQ_API_KEY")
-    if not groq_api_key:
-        raise ValueError("GROQ_API_KEY environment variable not set.")
-        
-    client = OpenAI(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=groq_api_key  
-    )
+try:     
+    client = groq_client
 
-    MODEL = "meta-llama/llama-4-scout-17b-16e-instruct" 
+    MODEL = settings.VISION_MODEL_NAME
 except (ValueError, ImportError) as e:
     print(f"Error: {e}")
     client = None
