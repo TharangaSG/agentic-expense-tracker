@@ -95,3 +95,5 @@ lancedb/
 
 # Exclude temporary files
 temp/
+
+.files

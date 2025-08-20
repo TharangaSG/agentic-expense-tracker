@@ -1,11 +1,8 @@
 import base64
-import os
-from openai import OpenAI
 from src.utils.clients import gemini_client
+from src.settings import settings
 
-
-
-def transcribe_audio(file_path: str) -> str:
+async def transcribe_audio(file_path: str) -> str:
     """
     Transcribes an audio file using Gemini API and returns text.
     
