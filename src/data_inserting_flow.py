@@ -20,7 +20,6 @@ class ReceiptData(BaseModel):
     items: List[Item] = Field(description="A list of all items from the receipt.")
 
 
-
 def parse_text_purchase(text: str) -> str:
     """
     Parse natural language purchase description into structured format.
@@ -42,11 +41,10 @@ tools = [
             "parameters": {
                 "type": "object",
                 "properties": {"image_source": {"type": "string", "description": "The URL of the receipt image to process."}},
-                "required": ["image_source"],
-            },
-        },
+                "required": ["image_source"]
+            }
+        }
     },
-
     {
         "type": "function",
         "function": {
@@ -54,12 +52,11 @@ tools = [
             "description": "When the user provides an audio URL, use this tool to extract raw text from it.",
             "parameters": {
                 "type": "object",
-                "properties": {"file_path": {"type": "string"}},
-                "required": ["file_path"],
-            },
-        },
+                "properties": {"file_input": {"type": "string", "description": "The URL of the audio file to transcribe."}},
+                "required": ["file_input"]
+            }
+        }
     },
-
     {
         "type": "function",
         "function": {
@@ -70,237 +67,93 @@ tools = [
     },
 ]
 
-try:
-    client = gemini_client
-except KeyError:
-    print("ERROR: Please set the GEMINI_API_KEY environment variable.")
-    exit()
-
-MODEL = settings.MAIN_MODEL_NAME
-
 available_functions = {
     "extract_data_from_image": extract_data_from_image,
     "save_data_to_db": save_data_to_db,
     "transcribe_audio": transcribe_audio,
+    
 }
 
-def detect_input_type(user_input: str) -> str:
-    """
-    Detect the type of user input (image, audio, or text).
-    
-    Args:
-        user_input: The user's input string
-        
-    Returns:
-        Input type: 'image', 'audio', or 'text'
-    """
-    # Check for common image file extensions
-    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-    # Check for common audio file extensions
-    audio_extensions = ['.wav', '.mp3', '.m4a', '.flac', '.aac', '.ogg']
-    
-    user_input_lower = user_input.lower()
-    
-    if any(ext in user_input_lower for ext in image_extensions):
-        return 'image'
-    elif any(ext in user_input_lower for ext in audio_extensions):
-        return 'audio'
-    else:
-        return 'text'
-
-def process_user_input(user_input: str) -> str:
-    """
-    Process different types of user input and return appropriate content for the AI model.
-    
-    Args:
-        user_input: Raw user input (could be image path, audio path, or text)
-        
-    Returns:
-        Processed content ready for the AI model
-    """
-    input_type = detect_input_type(user_input)
-    
-    if input_type == 'image':
-        return f"process the receipt at '{user_input}' and save its contents to my database."
-    
-    elif input_type == 'audio':
-        return f"Transcribing audio file: '{user_input}' and save its contents to my database."
-    
-    else:
-        # It's a text description of a purchase
-        return f"I made a purchase: {user_input}. Please parse this and save to my database."
 
 def main():
     """
-    Main function to handle different types of user input.
+    Main function to run the data insertion flow.
     """
-    # Get user input
-    print("=== Receipt Processing System ===")
-    print("You can:")
-    print("1. Provide an image file path (e.g., 'bill4.jpg')")
-    print("2. Provide an audio file path (e.g., 'purchase.wav')")
+    print("Welcome to the Financial Assistant Data Insertion Tool!")
+    print("\nYou can:")
+    print("1. Upload a receipt image URL")
+    print("2. Upload an audio file URL")
     print("3. Type your purchase description (e.g., 'I bought two milk packets for 10 dollars')")
-    print()
+    print("\nType 'quit' to exit.")
     
-    user_input = input("Enter your input: ").strip()
-    
-    if not user_input:
-        print("No input provided. Exiting.")
-        return
-    
-    # Process the user input
-    processed_content = process_user_input(user_input)
-    
-    messages = [
-        {"role": "system", "content": """You are a helpful assistant that processes purchase information. 
-        When given purchase descriptions in natural language, extract the item details and structure them appropriately. 
-        For text purchases, try to infer reasonable unit prices from the total if not explicitly stated.
-        Always generate a unique receipt_id (you can use a timestamp-based approach or increment from 1).
-        """},
-        {"role": "user", "content": processed_content}
-    ]
-    
-    # Process with AI model
-    for attempt in range(3):
-        print(f"\n--- Attempt {attempt + 1}: Sending request to model ---")
-        print(f"  > Current message history length: {len(messages)}")
-        print(f"  > Processing: {processed_content[:100]}...")
+    while True:
+        user_input = input("\nEnter your input: ").strip()
         
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto"
-            )
-            
-            response_message = completion.choices[0].message
-            tool_calls = response_message.tool_calls
-            
-            if tool_calls:
-                messages.append(response_message)
-                
-                for tool_call in tool_calls:
-                    function_name = tool_call.function.name
-                    function_to_call = available_functions[function_name]
-                    function_args = json.loads(tool_call.function.arguments)
-                    
-                    print(f"  > Calling function: {function_name}")
-                    print(f"  > Arguments: {function_args}")
-                    
-                    function_response = function_to_call(**function_args)
-                    
-                    messages.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": function_name,
-                        "content": function_response,
-                    })
-                continue
-            else:
-                print("\n--- Final response from model ---")
-                print(response_message.content)
-                break
-                
-        except Exception as e:
-            print(f"Error during processing: {e}")
+        if user_input.lower() == 'quit':
+            print("Goodbye!")
             break
-
-
-
+        
+        if not user_input:
+            print("Please enter some input.")
+            continue
+        
+        result = process_user_input(user_input)
+        print(f"\nResult: {result}")
 
 
 async def process_user_input(user_input: str) -> str:
     """
-    Process user input for WhatsApp integration.
-    This is an async wrapper around the main processing logic.
+    Process user input and return formatted response.
+    
+    Args:
+        user_input: User's input (text, image analysis, or audio transcription)
+        
+    Returns:
+        Formatted response message
     """
     try:
         # Determine input type and process accordingly
-        if user_input.startswith("[Image Analysis:"):
-            # Extract the image analysis content
-            analysis_content = user_input.replace("[Image Analysis:", "").replace("]", "").strip()
-            return process_image_data(analysis_content)
-        elif "http" in user_input and any(ext in user_input.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
-            # Image URL provided
-            return process_image_url(user_input)
-        else:
-            # Text input (including transcribed audio)
-            return process_text_input(user_input)
-    except Exception as e:
-        return f"Sorry, I encountered an error processing your request: {str(e)}"
+        if user_input.startswith("http"):
+            if any(ext in user_input.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+                # It's an image URL
+                user_input = f"Image URL: {user_input}"
+            elif any(ext in user_input.lower() for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
+                # It's an audio URL
+                user_input = f"Audio URL: {user_input}"
+        
+        # It's a text description of a purchase
+        client = gemini_client
+        
+        # Generate a unique receipt ID (you might want to implement a better ID generation)
+        
+        messages = [
+            {
+                "role": "system",
+                "content": f"""You are a financial assistant that helps users track their purchases. 
+                
+                When given purchase descriptions in natural language, extract the item details and structure them appropriately. 
+                
+                For each item, extract:
+                - item_name: The name of the item
+                - quantity: How many units were purchased
+                - unit_price: Price per single unit
+                - total_price: Total cost for that item (quantity * unit_price)
+                
+                Call the save_data_to_db function with the structured data.
+                
+                If the user just says hello or greets you, respond politely and ask them to describe their purchase."""
+            },
+            {
+                "role": "user", 
+                "content": user_input
+            }
+        ]
 
-def process_image_data(image_analysis: str) -> str:
-    """Process image analysis data and extract receipt information."""
-    try:
-        # Use the AI model to structure the extracted data
-        response = gemini_client.chat.completions.create(
+        response = client.chat.completions.create(
             model=settings.MAIN_MODEL_NAME,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that extracts structured receipt data. When given receipt text, extract items with their quantities, unit prices, and total prices. If the data looks like a receipt, call the save_data_to_db function. If not, provide helpful guidance."
-                },
-                {
-                    "role": "user",
-                    "content": f"Extract receipt data from this text: {image_analysis}"
-                }
-            ],
+            messages=messages,
             tools=tools,
-        )
-        
-        # Check if the model wants to call a function
-        if response.choices[0].message.tool_calls:
-            for tool_call in response.choices[0].message.tool_calls:
-                if tool_call.function.name == "save_data_to_db":
-                    function_args = json.loads(tool_call.function.arguments)
-                    result = save_data_to_db(**function_args)
-                    return f"Receipt processed successfully! {result}"
-                elif tool_call.function.name == "extract_data_from_image":
-                    function_args = json.loads(tool_call.function.arguments)
-                    result = extract_data_from_image(**function_args)
-                    return process_image_data(result)  # Recursive call with extracted data
-        
-        return response.choices[0].message.content
-        
-    except Exception as e:
-        return f"Error processing image data: {str(e)}"
-
-
-def process_image_url(user_input: str) -> str:
-    """Process image URL input."""
-    try:
-        # Extract image URL from the input
-        words = user_input.split()
-        image_url = next((word for word in words if word.startswith('http')), None)
-        
-        if not image_url:
-            return "I couldn't find a valid image URL in your message."
-        
-        # Extract data from the image
-        extracted_data = extract_data_from_image(image_url)
-        return process_image_data(extracted_data)
-        
-    except Exception as e:
-        return f"Error processing image URL: {str(e)}"
-
-def process_text_input(user_input: str) -> str:
-    """Process text input (including transcribed audio)."""
-    try:
-        # Use the AI model to understand and structure the input
-        response = gemini_client.chat.completions.create(
-            model=settings.MAIN_MODEL_NAME,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful financial assistant. When users describe purchases or provide receipt information, extract the items with quantities, unit prices, and total prices, then save them to the database. For other queries, provide helpful responses about spending or financial advice."
-                },
-                {
-                    "role": "user",
-                    "content": user_input
-                }
-            ],
-            tools=tools,
+            tool_choice="auto"
         )
         
         # Check if the model wants to call a function
@@ -311,7 +164,41 @@ def process_text_input(user_input: str) -> str:
                 
                 if function_name in available_functions:
                     result = available_functions[function_name](**function_args)
-                    return f"Great! I've processed your purchase data. {result}"
+                    
+                    # Parse the result to create a better formatted output
+                    if function_name == "save_data_to_db":
+                        try:
+                            result_data = json.loads(result)
+                            if result_data.get("status") == "success":
+                                # Extract items from function_args to show what was saved
+                                items = function_args.get("items", [])
+                                receipt_id = function_args.get("receipt_id", "N/A")
+                                
+                                output = "Purchase Successfully Saved!\n\n"
+                                output += f"Items Saved: {len(items)}\n\n"
+                                output += "Saved Items:\n"
+                                
+                                total_amount = 0
+                                for i, item in enumerate(items, 1):
+                                    item_name = item.get("item_name", "Unknown")
+                                    quantity = item.get("quantity", 0)
+                                    unit_price = item.get("unit_price", 0)
+                                    total_price = item.get("total_price", 0)
+                                    total_amount += total_price
+                                    
+                                    output += f"{i}. {item_name}\n"
+                                    output += f"   - Quantity: {quantity}\n"
+                                    output += f"   - Unit Price: ${unit_price:.2f}\n"
+                                    output += f"   - Total: ${total_price:.2f}\n\n"
+                                
+                                output += f"Grand Total: ${total_amount:.2f}"
+                                return output
+                            else:
+                                return f"Error saving purchase: {result_data.get('message', 'Unknown error')}"
+                        except json.JSONDecodeError:
+                            return f"Purchase saved! {result}"
+                    
+                    return f"Great! I've processed your request. {result}"
         
         return response.choices[0].message.content
         

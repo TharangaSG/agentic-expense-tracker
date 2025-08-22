@@ -40,6 +40,9 @@ async def whatsapp_handler(request: Request) -> Response:
             message = change_value["messages"][0]
             from_number = message["from"]
             
+            # Send processing message first
+            await send_response(from_number, "Processing your request... ")
+            
             # Process different message types
             content = ""
             if message["type"] == "audio":
