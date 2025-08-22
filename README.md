@@ -39,16 +39,23 @@ The project consists of two main applications:
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/TharangaSG/agentic-expense-tracker.git
    cd financial-assistance
    ```
 
-2. **Install dependencies**:
+2. **Install dependencies using uv**:
    ```bash
-   pip install -e .
+   uv sync
    ```
 
-3. **Set up environment variables**:
+3. **Activate the virtual environment**:
+   ```bash
+   source .venv/bin/activate  # On Linux/Mac
+   # or
+   .venv\Scripts\activate     # On Windows
+   ```
+
+4. **Set up environment variables**:
    Copy `.env.example` to `.env` and fill in your API keys:
    ```bash
    cp .env.example .env
