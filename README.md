@@ -2,6 +2,11 @@
 
 A comprehensive AI-powered financial assistant that helps users track their purchases and expenses through multiple interfaces including a web chat interface and WhatsApp integration. The bot can process text descriptions, receipt images, and voice messages to automatically extract and store purchase data.
 
+
+https://github.com/user-attachments/assets/238527fb-1692-41fd-8084-8e5b60a52362
+
+
+
 ## 🚀 Features
 
 - **Multi-Interface Support**: Web interface (Chainlit) and WhatsApp integration
@@ -9,6 +14,7 @@ A comprehensive AI-powered financial assistant that helps users track their purc
   - Text descriptions of purchases
   - Receipt image analysis
   - Voice message transcription
+
 - **AI-Powered Processing**: Uses Google Gemini for intelligent data extraction
 - **Database Storage**: SQLite database for persistent purchase tracking
 - **Spending Analytics**: Query spending patterns and totals
