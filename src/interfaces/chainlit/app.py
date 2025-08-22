@@ -149,7 +149,7 @@ async def text_to_speech(text: str, mime_type: str):
 
     data = {
         "text": text,
-        "model_id": "eleven_multilingual_v2",
+        "model_id": settings.TTS_MODEL_NAME,
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.5},
     }
 

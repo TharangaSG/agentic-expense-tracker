@@ -206,5 +206,117 @@ def main():
             print(f"Error during processing: {e}")
             break
 
+
+
+
+
+async def process_user_input(user_input: str) -> str:
+    """
+    Process user input for WhatsApp integration.
+    This is an async wrapper around the main processing logic.
+    """
+    try:
+        # Determine input type and process accordingly
+        if user_input.startswith("[Image Analysis:"):
+            # Extract the image analysis content
+            analysis_content = user_input.replace("[Image Analysis:", "").replace("]", "").strip()
+            return process_image_data(analysis_content)
+        elif "http" in user_input and any(ext in user_input.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+            # Image URL provided
+            return process_image_url(user_input)
+        else:
+            # Text input (including transcribed audio)
+            return process_text_input(user_input)
+    except Exception as e:
+        return f"Sorry, I encountered an error processing your request: {str(e)}"
+
+def process_image_data(image_analysis: str) -> str:
+    """Process image analysis data and extract receipt information."""
+    try:
+        # Use the AI model to structure the extracted data
+        response = gemini_client.chat.completions.create(
+            model=settings.MAIN_MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that extracts structured receipt data. When given receipt text, extract items with their quantities, unit prices, and total prices. If the data looks like a receipt, call the save_data_to_db function. If not, provide helpful guidance."
+                },
+                {
+                    "role": "user",
+                    "content": f"Extract receipt data from this text: {image_analysis}"
+                }
+            ],
+            tools=tools,
+        )
+        
+        # Check if the model wants to call a function
+        if response.choices[0].message.tool_calls:
+            for tool_call in response.choices[0].message.tool_calls:
+                if tool_call.function.name == "save_data_to_db":
+                    function_args = json.loads(tool_call.function.arguments)
+                    result = save_data_to_db(**function_args)
+                    return f"Receipt processed successfully! {result}"
+                elif tool_call.function.name == "extract_data_from_image":
+                    function_args = json.loads(tool_call.function.arguments)
+                    result = extract_data_from_image(**function_args)
+                    return process_image_data(result)  # Recursive call with extracted data
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        return f"Error processing image data: {str(e)}"
+
+
+def process_image_url(user_input: str) -> str:
+    """Process image URL input."""
+    try:
+        # Extract image URL from the input
+        words = user_input.split()
+        image_url = next((word for word in words if word.startswith('http')), None)
+        
+        if not image_url:
+            return "I couldn't find a valid image URL in your message."
+        
+        # Extract data from the image
+        extracted_data = extract_data_from_image(image_url)
+        return process_image_data(extracted_data)
+        
+    except Exception as e:
+        return f"Error processing image URL: {str(e)}"
+
+def process_text_input(user_input: str) -> str:
+    """Process text input (including transcribed audio)."""
+    try:
+        # Use the AI model to understand and structure the input
+        response = gemini_client.chat.completions.create(
+            model=settings.MAIN_MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful financial assistant. When users describe purchases or provide receipt information, extract the items with quantities, unit prices, and total prices, then save them to the database. For other queries, provide helpful responses about spending or financial advice."
+                },
+                {
+                    "role": "user",
+                    "content": user_input
+                }
+            ],
+            tools=tools,
+        )
+        
+        # Check if the model wants to call a function
+        if response.choices[0].message.tool_calls:
+            for tool_call in response.choices[0].message.tool_calls:
+                function_name = tool_call.function.name
+                function_args = json.loads(tool_call.function.arguments)
+                
+                if function_name in available_functions:
+                    result = available_functions[function_name](**function_args)
+                    return f"Great! I've processed your purchase data. {result}"
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        return f"Error processing your message: {str(e)}"
+
 if __name__ == "__main__":
     main()
