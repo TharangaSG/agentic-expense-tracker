@@ -1,34 +1,22 @@
-import os
 import json
-from openai import OpenAI
+from src.config.containers import get_llm_provider, get_database
+from src.domain.models import Message, ChatRequest
 from pydantic import BaseModel, Field
-from database_query_tool import get_spending_for_item_last_week
 
 
 class SpendingQuery(BaseModel):
     item_name: str = Field(description="The name of the item to query for spending, e.g., 'soda', 'milk'.")
 
-client = OpenAI(
-    api_key=os.getenv("GEMINI_API_KEY"),
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-)
-MODEL = "gemini-2.5-flash"
-
-
-available_tools = {
-    "get_spending_for_item_last_week": get_spending_for_item_last_week,
-}
 
 def run_conversation(user_prompt: str):
     """
-    Runs the main conversation loop with the AI model.
+    Runs the main conversation loop with the AI model using port-adapter architecture.
     """
-    if not client:
-        print("Client not initialized. Exiting.")
-        return
-
-    messages = [{"role": "user", "content": user_prompt}]
+    # Get providers from factory
+    llm_provider = get_llm_provider()
+    database = get_database()
     
+    # Define available tools
     tools = [
         {
             "type": "function",
@@ -39,55 +27,74 @@ def run_conversation(user_prompt: str):
             }
         }
     ]
-
+    
     print(f"\nUser: {user_prompt}")
-
-    # Send the prompt and tools to the model
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
+    
+    # Create chat request using Pydantic models
+    chat_request = ChatRequest(
+        messages=[
+            Message(role="user", content=user_prompt)
+        ],
+        model=llm_provider.get_model_name(),
         tools=tools,
-        tool_choice="auto",
+        tool_choice="auto"
     )
-    response_message = response.choices[0].message
+    
+    # Send the prompt and tools to the model
+    response = llm_provider.chat_completion(chat_request)
     
     # Check if the model wants to call the tool
-    if response_message.tool_calls:
+    if response.tool_calls:
         print("\nModel wants to call a tool...")
-        messages.append(response_message)
         
-        for tool_call in response_message.tool_calls:
-            function_name = tool_call.function.name
-            function_to_call = available_tools[function_name]
-            function_args = json.loads(tool_call.function.arguments)
+        # Add assistant message to conversation
+        chat_request.messages.append(
+            Message(
+                role="assistant",
+                content=response.content,
+                tool_calls=response.tool_calls
+            )
+        )
+        
+        for tool_call in response.tool_calls:
+            function_name = tool_call["function"]["name"]
+            function_args = json.loads(tool_call["function"]["arguments"])
             
             print(f"Calling function '{function_name}' with arguments: {function_args}")
             
-            function_response = function_to_call(**function_args)
+            # Execute the tool using database port
+            if function_name == "get_spending_for_item_last_week":
+                item_name = function_args.get("item_name")
+                total_spent = database.query_spending(item_name, days=7)
+                function_response = f"Tool execution result: Total all-time spending on {item_name} is ${total_spent:.2f}"
+            else:
+                function_response = "Unknown function"
             
             print(f"Tool response: {function_response}")
             
-            messages.append(
-                {
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "name": function_name,
-                    "content": function_response,
-                }
+            # Add tool response to conversation
+            chat_request.messages.append(
+                Message(
+                    tool_call_id=tool_call["id"],
+                    role="tool",
+                    name=function_name,
+                    content=function_response
+                )
             )
-
+        
         print("\nSending tool response back to the model...")
-        final_response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-        )
+        
+        # Get final response
+        final_response = llm_provider.chat_completion(chat_request)
+        
         print("\nLLM Final Answer:")
-        print(final_response.choices[0].message.content)
+        print(final_response.content)
     else:
         print("\nLLM Final Answer:")
-        print(response_message.content)
+        print(response.content)
+
 
 if __name__ == "__main__":
-
     user_question = "How much money have I spend to buy Cheese Crackers ?"
     run_conversation(user_question)
+
