@@ -10,10 +10,8 @@ import os
 from typing import List
 from src.settings import settings
 import chainlit as cl
-from src.utils.clients import gemini_client
-from src.tools.save_data_to_db import save_data_to_db, ReceiptData
-from src.tools.read_image import extract_data_from_image
-from src.tools.speech_to_text import transcribe_audio
+from src.config.containers import get_llm_provider, get_stt_provider, get_tts_provider, get_database
+from src.domain.models import Receipt, Item, Message, ChatRequest, TranscriptionRequest, TTSRequest, AudioFormat
 
 
 if not settings.ELEVENLABS_API_KEY or not settings.ELEVENLABS_VOICE_ID:
@@ -26,110 +24,84 @@ tools = [
         "function": {
             "name": "save_data_to_db",
             "description": "Takes structured JSON data of receipt items and saves it to the database.",
-            "parameters": ReceiptData.model_json_schema(),
+            "parameters": Receipt.model_json_schema(),
         },
     },
 ]
-
-available_functions = {
-    "save_data_to_db": save_data_to_db,
-}
 
 
 @cl.step(type="tool")
 async def speech_to_text_chainlit(audio_file: tuple) -> str:
     """
-    Transcribes an audio file using Gemini API for Chainlit.
+    Transcribes an audio file using STT port for Chainlit.
     audio_file: ("audio.wav", audio_bytes, "audio/wav")
     """
     file_name, audio_bytes, mime_type = audio_file
     ext = file_name.split(".")[-1]
 
-    # Convert to base64
-    base64_audio = base64.b64encode(audio_bytes).decode("utf-8")
-
-    response = gemini_client.chat.completions.create(
-        model=settings.MAIN_MODEL_NAME,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Transcribe this audio"},
-                    {
-                        "type": "input_audio",
-                        "input_audio": {
-                            "data": base64_audio,
-                            "format": ext,
-                        },
-                    },
-                ],
-            }
-        ],
+    # Get STT provider
+    stt_provider = get_stt_provider()
+    
+    # Create transcription request
+    request = TranscriptionRequest(
+        audio_data=audio_bytes,
+        format=AudioFormat(ext)
     )
-
-    return response.choices[0].message.content
+    
+    # Transcribe using port
+    response = stt_provider.transcribe(request)
+    return response.text
 
 
 @cl.step(type="tool")
 async def process_purchase_data(transcription: str) -> str:
     """
-    Process transcribed purchase data and save to database.
+    Process transcribed purchase data and save to database using LLM port.
     """
-    # Create a system message for processing purchase data
-    messages = [
-        {
-            "role": "system", 
-            "content": """You are a helpful assistant that processes purchase information. 
-            When given purchase descriptions in natural language, extract the item details and structure them appropriately. 
-            For text purchases, try to infer reasonable unit prices from the total if not explicitly stated.
-            Always generate a unique receipt_id (you can use a timestamp-based approach or increment from 1).
-            Make sure to call the save_data_to_db function with the extracted data."""
-        },
-        {
-            "role": "user", 
-            "content": f"I made a purchase: {transcription}. Please parse this and save to my database."
-        }
-    ]
+    # Get providers
+    llm_provider = get_llm_provider()
+    database = get_database()
+    
+    # Create chat request
+    chat_request = ChatRequest(
+        messages=[
+            Message(
+                role="system",
+                content="""You are a helpful assistant that processes purchase information. 
+                When given purchase descriptions in natural language, extract the item details and structure them appropriately. 
+                For text purchases, try to infer reasonable unit prices from the total if not explicitly stated.
+                Always generate a unique receipt_id (you can use a timestamp-based approach or increment from 1).
+                Make sure to call the save_data_to_db function with the extracted data."""
+            ),
+            Message(
+                role="user",
+                content=f"I made a purchase: {transcription}. Please parse this and save to my database."
+            )
+        ],
+        model=llm_provider.get_model_name(),
+        tools=tools,
+        tool_choice="auto"
+    )
     
     try:
-        completion = gemini_client.chat.completions.create(
-            model=settings.MAIN_MODEL_NAME,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto"
-        )
+        response = llm_provider.chat_completion(chat_request)
         
-        response_message = completion.choices[0].message
-        tool_calls = response_message.tool_calls
-        
-        if tool_calls:
-            messages.append(response_message)
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                function_name = tool_call["function"]["name"]
+                function_args = json.loads(tool_call["function"]["arguments"])
+                
+                if function_name == "save_data_to_db":
+                    # Create Receipt domain model and save
+                    receipt = Receipt(**function_args)
+                    success = database.save_receipt(receipt)
+                    
+                    if success:
+                        return f"Successfully saved {len(receipt.items)} items to database!"
+                    else:
+                        return "Error saving to database"
             
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
-                function_to_call = available_functions[function_name]
-                function_args = json.loads(tool_call.function.arguments)
-                
-                print(f"Calling function: {function_name}")
-                print(f"Arguments: {function_args}")
-                
-                function_response = function_to_call(**function_args)
-                
-                messages.append({
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "name": function_name,
-                    "content": function_response,
-                })
-            
-            # Get final response
-            final_completion = gemini_client.chat.completions.create(
-                model=settings.MAIN_MODEL_NAME,
-                messages=messages,
-            )
-            return final_completion.choices[0].message.content
-        else:
-            return response_message.content
+        return response.content or "Purchase processed"
             
     except Exception as e:
         return f"Error processing purchase data: {str(e)}"
@@ -137,35 +109,22 @@ async def process_purchase_data(transcription: str) -> str:
 
 @cl.step(type="tool")
 async def text_to_speech(text: str, mime_type: str):
-    """Generate speech from text using ElevenLabs API."""
-    CHUNK_SIZE = 1024
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{settings.ELEVENLABS_VOICE_ID}"
-
-    headers = {
-        "Accept": mime_type,
-        "Content-Type": "application/json",
-        "xi-api-key": settings.ELEVENLABS_API_KEY,
-    }
-
-    data = {
-        "text": text,
-        "model_id": settings.TTS_MODEL_NAME,
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.5},
-    }
-
-    async with httpx.AsyncClient(timeout=25.0) as client:
-        response = await client.post(url, json=data, headers=headers)
-        response.raise_for_status()
-
-        buffer = io.BytesIO()
-        buffer.name = f"output_audio.{mime_type.split('/')[1]}"
-
-        async for chunk in response.aiter_bytes(chunk_size=CHUNK_SIZE):
-            if chunk:
-                buffer.write(chunk)
-
-        buffer.seek(0)
-        return buffer.name, buffer.read()
+    """Generate speech from text using TTS port."""
+    # Get TTS provider
+    tts_provider = get_tts_provider()
+    
+    # Create TTS request
+    request = TTSRequest(text=text)
+    
+    # Synthesize using port
+    response = tts_provider.synthesize(request)
+    
+    # Create buffer for audio data
+    buffer = io.BytesIO(response.audio_data)
+    buffer.name = f"output_audio.{response.format.value}"
+    buffer.seek(0)
+    
+    return buffer.name, buffer.read()
 
 
 @cl.on_chat_start

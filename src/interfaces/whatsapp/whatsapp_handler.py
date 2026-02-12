@@ -6,8 +6,8 @@ from typing import Dict
 import httpx
 from fastapi import APIRouter, Request, Response
 from src.settings import settings
-from src.tools.speech_to_text import transcribe_ogg_file
-from src.tools.read_image import extract_data_from_image
+from src.config.containers import get_stt_provider, get_vision_provider
+from src.domain.models import TranscriptionRequest, VisionRequest, AudioFormat, ImageFormat
 from src.data_inserting_flow import process_user_input
 
 logger = logging.getLogger(__name__)
@@ -80,23 +80,23 @@ async def whatsapp_handler(request: Request) -> Response:
 
 
 async def process_audio_message(message: Dict) -> str:
-    """Download and transcribe audio message."""
+    """Download and transcribe audio message using STT port."""
     try:
         audio_id = message["audio"]["id"]
         audio_bytes = await download_media(audio_id)
         
-        # Save audio to temporary file for transcription
-        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_file:
-            temp_file.write(audio_bytes)
-            temp_file_path = temp_file.name
+        # Get STT provider
+        stt_provider = get_stt_provider()
         
-        try:
-            # Transcribe the audio
-            transcription = await transcribe_ogg_file(temp_file_path)
-            return transcription
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_file_path)
+        # Create transcription request
+        request = TranscriptionRequest(
+            audio_data=audio_bytes,
+            format=AudioFormat.OGG
+        )
+        
+        # Transcribe using port
+        response = stt_provider.transcribe(request)
+        return response.text
             
     except Exception as e:
         logger.error(f"Error processing audio message: {e}")
@@ -104,36 +104,34 @@ async def process_audio_message(message: Dict) -> str:
 
 
 async def process_image_message(message: Dict) -> str:
-    """Download and analyze image message."""
+    """Download and analyze image message using Vision port."""
     try:
         # Get image caption if any
         content = message.get("image", {}).get("caption", "")
         
-        # Download and analyze image
+        # Download image
         image_id = message["image"]["id"]
         image_bytes = await download_media(image_id)
         
-        # Save image to temporary file for analysis
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-            temp_file.write(image_bytes)
-            temp_file_path = temp_file.name
+        # Get vision provider
+        vision_provider = get_vision_provider()
         
-        try:
-            # Extract data from image using your existing tool
-            image_analysis = extract_data_from_image(
-                temp_file_path, 
-                "Extract receipt data from this image. List all items with their quantities, unit prices, and total prices."
-            )
-            
-            # Combine caption and image analysis
-            if content:
-                return f"{content}\n\n[Image Analysis: {image_analysis}]"
-            else:
-                return f"[Image Analysis: {image_analysis}]"
-                
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_file_path)
+        # Create vision request
+        request = VisionRequest(
+            image_data=image_bytes,
+            format=ImageFormat.JPEG,
+            prompt="Extract receipt data from this image. List all items with their quantities, unit prices, and total prices."
+        )
+        
+        # Analyze using port
+        response = vision_provider.analyze_image(request)
+        image_analysis = response.extracted_text
+        
+        # Combine caption and image analysis
+        if content:
+            return f"{content}\n\n[Image Analysis: {image_analysis}]"
+        else:
+            return f"[Image Analysis: {image_analysis}]"
             
     except Exception as e:
         logger.error(f"Error processing image message: {e}")
