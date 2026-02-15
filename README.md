@@ -19,8 +19,17 @@ https://github.com/user-attachments/assets/238527fb-1692-41fd-8084-8e5b60a52362
 - **Database Storage**: SQLite database for persistent purchase tracking
 - **Spending Analytics**: Query spending patterns and totals
 - **Voice Synthesis**: Text-to-speech responses using ElevenLabs
+- **Flexible Architecture**: Easily switch between different AI providers (Gemini, Groq, etc.) via configuration
 
 ## 🏗️ Architecture
+
+The project follows a port-adapter architecture with dependency injection, consisting of:
+
+1. **Ports** (`src/ports/`): Abstract interfaces defining contracts for services (LLM, STT, TTS, Vision, Database)
+2. **Adapters** (`src/adapters/`): Concrete implementations of ports for specific services (Gemini, Groq, ElevenLabs, SQLite)
+3. **Domain Models** (`src/domain/`): Business logic independent of external services
+4. **Interfaces** (`src/interfaces/`): User-facing components (Chainlit web, WhatsApp webhook)
+5. **Dependency Injection Container** (`src/config/containers.py`): Manages provider instances and configuration
 
 The project consists of two main applications:
 
@@ -160,10 +169,36 @@ docker run -p 8001:8001 --env-file .env financial-assistant
 ## 🔧 Configuration
 
 ### Model Settings
-- **Main Model**: `gemini-2.5-flash` (default)
-- **Vision Model**: `meta-llama/llama-4-scout-17b-16e-instruct` (default)
-- **Speech-to-Text**: `gemini-2.5-flash` (default)
-- **Text-to-Speech**: `eleven_multilingual_v2` (default)
+
+The application uses a dependency injection container to manage different service providers. You can configure which providers to use by setting environment variables in your `.env` file:
+
+- **LLM Provider**: `LLM_PROVIDER` (options: `gemini`, `groq`)
+- **Vision Provider**: `VISION_PROVIDER` (options: `groq`)
+- **Speech-to-Text Provider**: `STT_PROVIDER` (options: `gemini`)
+- **Text-to-Speech Provider**: `TTS_PROVIDER` (options: `elevenlabs`)
+- **Database Provider**: Configured automatically (currently SQLite only)
+
+Example configuration in `.env`:
+```
+LLM_PROVIDER=groq
+VISION_PROVIDER=groq
+STT_PROVIDER=gemini
+TTS_PROVIDER=elevenlabs
+```
+
+### Available Providers
+- **LLM**: Gemini (`gemini-2.5-flash`) or Groq (`llama-3.1-8b-instant`, `llama-3.1-70b-versatile`, etc.)
+- **Vision**: Groq Vision models for image analysis
+- **Speech-to-Text**: Gemini for audio transcription
+- **Text-to-Speech**: ElevenLabs for voice synthesis
+- **Database**: SQLite for persistent storage
+
+### Benefits of Container Architecture
+- **Easy Provider Switching**: Change AI providers without modifying code
+- **Environment Flexibility**: Different configurations for dev, staging, production
+- **Testability**: Easy to mock providers during testing
+- **Maintainability**: Clean separation of concerns between business logic and service implementations
+- **Extensibility**: Simple to add new providers by implementing the appropriate port interface
 
 
 ## 🆘 Support
