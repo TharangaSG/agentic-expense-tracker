@@ -1,0 +1,86 @@
+name: Build & Deploy (ACR -> Azure Container Apps)
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Login to Azure 
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set vars
+        run: |
+          echo "ACR_LOGIN_SERVER=${{ secrets.ACR_NAME }}.azurecr.io" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_ENV
+
+      - name: Login to ACR
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      # Build and push image to ACR
+      - name: Build & Push Docker image
+        run: |
+          docker build -t $ACR_LOGIN_SERVER/${{ secrets.IMAGE_NAME }}:$IMAGE_TAG .
+          docker push $ACR_LOGIN_SERVER/${{ secrets.IMAGE_NAME }}:$IMAGE_TAG
+
+      # Create .env file from GitHub
+      - name: Create .env file from secret
+        shell: bash
+        run: |
+          # Write the secret into a file
+          echo "${{ secrets.ENV_FILE }}" > .env
+
+          # Optional: basic check (does not print values)
+          echo "Created .env with $(wc -l < .env) lines"
+
+      # Create Container Apps environment
+      - name: Ensure Container Apps Environment exists
+        run: |
+          az containerapp env show \
+            --name ${{ secrets.CONTAINERAPP_ENV }} \
+            --resource-group ${{ secrets.RESOURCE_GROUP }} >/dev/null 2>&1 \
+          || az containerapp env create \
+            --name ${{ secrets.CONTAINERAPP_ENV }} \
+            --resource-group ${{ secrets.RESOURCE_GROUP }} \
+            --location eastus
+
+      # Create Container App
+      - name: Deploy / Update Container App (use .env)
+        shell: bash
+        run: |
+          APP="${{ secrets.CONTAINERAPP_NAME }}"
+          RG="${{ secrets.RESOURCE_GROUP }}"
+          ENV="${{ secrets.CONTAINERAPP_ENV }}"
+          IMG="$ACR_LOGIN_SERVER/${{ secrets.IMAGE_NAME }}:$IMAGE_TAG"
+          PORT="${{ secrets.TARGET_PORT }}"
+
+          # Convert .env lines -> KEY=VALUE space-separated (ignore blank lines and comments)
+          ENV_VARS="$(grep -v '^\s*$' .env | grep -v '^\s*#' | xargs)"
+
+          # Create app if not exists
+          az containerapp show --name "$APP" --resource-group "$RG" >/dev/null 2>&1 || \
+          az containerapp create \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --environment "$ENV" \
+            --image "$IMG" \
+            --registry-server "$ACR_LOGIN_SERVER" \
+            --ingress external \
+            --target-port "$PORT" \
+            --env-vars $ENV_VARS
+
+          # Update image + env vars
+          az containerapp update \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --image "$IMG" \
+            --env-vars $ENV_VARS
