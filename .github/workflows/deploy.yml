@@ -97,7 +97,8 @@ jobs:
 
           # Update image + env vars
           az containerapp update \
-            --name "$APP" \
-            --resource-group "$RG" \
-            --image "$IMG" \
-            --env-vars $ENV_VARS
+          --name "$APP" \
+          --resource-group "$RG" \
+          --image "$IMG" \
+          --set-env-vars $ENV_VARS
+
