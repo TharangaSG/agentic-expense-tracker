@@ -53,20 +53,27 @@ jobs:
             --resource-group ${{ secrets.RESOURCE_GROUP }} \
             --location eastus
 
-      # Create Container App
-      - name: Deploy / Update Container App (use .env)
+      # Create / Update Container App (use .env + ACR credentials)
+      - name: Deploy / Update Container App (use .env + ACR creds)
         shell: bash
         run: |
+          set -e
+
           APP="${{ secrets.CONTAINERAPP_NAME }}"
           RG="${{ secrets.RESOURCE_GROUP }}"
           ENV="${{ secrets.CONTAINERAPP_ENV }}"
-          IMG="$ACR_LOGIN_SERVER/${{ secrets.IMAGE_NAME }}:$IMAGE_TAG"
+          ACR_LOGIN_SERVER="${{ secrets.ACR_NAME }}.azurecr.io"
+          IMG="$ACR_LOGIN_SERVER/${{ secrets.IMAGE_NAME }}:${{ github.sha }}"
           PORT="${{ secrets.TARGET_PORT }}"
 
           # Convert .env lines -> KEY=VALUE space-separated (ignore blank lines and comments)
           ENV_VARS="$(grep -v '^\s*$' .env | grep -v '^\s*#' | xargs)"
 
-          # Create app if not exists
+          # Get ACR admin username/password (make sure ACR admin is enabled)
+          ACR_USER="$(az acr credential show -n ${{ secrets.ACR_NAME }} --query username -o tsv)"
+          ACR_PASS="$(az acr credential show -n ${{ secrets.ACR_NAME }} --query 'passwords[0].value' -o tsv)"
+
+          # Create app if not exists (include registry creds so it can pull)
           az containerapp show --name "$APP" --resource-group "$RG" >/dev/null 2>&1 || \
           az containerapp create \
             --name "$APP" \
@@ -74,9 +81,19 @@ jobs:
             --environment "$ENV" \
             --image "$IMG" \
             --registry-server "$ACR_LOGIN_SERVER" \
+            --registry-username "$ACR_USER" \
+            --registry-password "$ACR_PASS" \
             --ingress external \
             --target-port "$PORT" \
             --env-vars $ENV_VARS
+
+          # Ensure registry creds are set (important for updates too)
+          az containerapp registry set \
+            --name "$APP" \
+            --resource-group "$RG" \
+            --server "$ACR_LOGIN_SERVER" \
+            --username "$ACR_USER" \
+            --password "$ACR_PASS"
 
           # Update image + env vars
           az containerapp update \
