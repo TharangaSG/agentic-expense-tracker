@@ -9,13 +9,13 @@ class Settings(BaseSettings):
     ELEVENLABS_API_KEY: str 
 
     # Provider Selection - Change these to switch providers
-    LLM_PROVIDER: str = "gemini"  # Options: "gemini", "groq"
+    LLM_PROVIDER: str = "groq"  # Options: "gemini", "groq"
     STT_PROVIDER: str = "gemini"  # Options: "gemini"
     TTS_PROVIDER: str = "elevenlabs"  # Options: "elevenlabs"
     VISION_PROVIDER: str = "groq"  # Options: "groq" 
 
     # Model Configuration
-    MAIN_MODEL_NAME: str = "gemini-2.5-flash"
+    MAIN_MODEL_NAME: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     VISION_MODEL_NAME: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     ELEVENLABS_VOICE_ID: str = "Xb7hH8MSUJpSbSDYk0k2"
     STT_MODEL_NAME: str = "gemini-2.5-flash"
