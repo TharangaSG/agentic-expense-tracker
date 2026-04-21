@@ -3,6 +3,11 @@ Script to run the WhatsApp webhook server for the Financial Assistant bot.
 """
 
 import uvicorn
+
+# Initialize logging first thing
+from src.utils.logging_config import setup_logging
+setup_logging()
+
 from src.interfaces.whatsapp.whatsapp_app import app
 
 if __name__ == "__main__":

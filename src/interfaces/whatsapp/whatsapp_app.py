@@ -1,18 +1,45 @@
 """
 FastAPI application for WhatsApp webhook integration with the financial assistance bot.
-This runs separately from the Chainlit app and handles WhatsApp messages.
 """
 
-import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from src.utils.logging_config import get_logger
 from src.interfaces.whatsapp.whatsapp_handler import whatsapp_router
+from src.config.containers import get_async_database
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-# Create FastAPI app
-app = FastAPI(title="Financial Assistant WhatsApp Bot", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle: connect/disconnect the async database."""
+    # ── Startup ──
+    db = get_async_database()
+    try:
+        await db.connect()
+        logger.info("✅ PostgreSQL connection pool initialized on startup.")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to PostgreSQL on startup: {e}")
+        logger.warning("The app will attempt to connect on the first request.")
+    
+    yield  # App runs here
+    
+    # ── Shutdown ──
+    try:
+        await db.disconnect()
+        logger.info("PostgreSQL connection pool closed on shutdown.")
+    except Exception as e:
+        logger.error(f"Error closing PostgreSQL pool: {e}")
+
+
+# Create FastAPI app with lifespan manager
+app = FastAPI(
+    title="Financial Assistant WhatsApp Bot",
+    version="2.0.0",
+    lifespan=lifespan,
+)
 
 # Include WhatsApp router
 app.include_router(whatsapp_router)
@@ -23,7 +50,14 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    db = get_async_database()
+    db_status = "connected" if db.pool is not None else "disconnected"
+    return {
+        "status": "healthy",
+        "database": db_status,
+        "version": "2.0.0 (multi-agent)",
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
