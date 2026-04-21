@@ -17,4 +17,7 @@ dependencies = [
     "uvicorn>=0.24.0",
     "httpx>=0.25.0",
     "dependency-injector>=4.48.3",
+    "asyncpg>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "pgvector>=0.3.6",
 ]

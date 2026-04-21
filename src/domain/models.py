@@ -8,6 +8,7 @@ of any external services or infrastructure concerns.
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from enum import Enum
+from datetime import datetime, timezone
 
 
 class Item(BaseModel):
@@ -16,6 +17,15 @@ class Item(BaseModel):
     quantity: float = Field(description="The quantity of the item purchased")
     unit_price: float = Field(description="The price of a single unit")
     total_price: float = Field(description="The total price for the item")
+    purchase_date: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp of the purchase (defaults to current time on save)"
+    )
+    item_name_embedding: Optional[List[float]] = Field(
+        default=None,
+        description="768-dim embedding vector for the item name (auto-generated)",
+        exclude=True,  # Exclude from JSON schema so LLM doesn't try to fill it
+    )
 
 
 class Receipt(BaseModel):
@@ -27,7 +37,7 @@ class Receipt(BaseModel):
 class Message(BaseModel):
     """Chat message for LLM interactions"""
     role: str = Field(description="Message role: system, user, assistant, tool")
-    content: str = Field(description="Message content")
+    content: Optional[str] = Field(default=None, description="Message content")
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
     name: Optional[str] = None
