@@ -16,6 +16,7 @@ it delegates to `process_user_input()` from the Main Agent orchestrator
 import io
 import wave
 import time
+import uuid
 import numpy as np
 import audioop
 
@@ -37,6 +38,19 @@ logger = get_logger(__name__)
 
 if not settings.ELEVENLABS_API_KEY or not settings.ELEVENLABS_VOICE_ID:
     raise ValueError("ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID must be set")
+
+
+def get_trace_context() -> dict[str, str]:
+    session_id = cl.user_session.get("trace_session_id")
+    if not session_id:
+        session_id = f"chainlit-{uuid.uuid4()}"
+        cl.user_session.set("trace_session_id", session_id)
+
+    return {
+        "session_id": session_id,
+        "user_id": session_id,
+        "source": "chainlit",
+    }
 
 
 
@@ -117,6 +131,7 @@ async def start():
     """Initialize the chat session and connect the async database."""
     logger.info("Chainlit chat session started")
     cl.user_session.set("message_history", [])
+    cl.user_session.set("trace_session_id", f"chainlit-{uuid.uuid4()}")
 
     # Ensure the async PostgreSQL pool is connected
     db = get_async_database()
@@ -244,7 +259,7 @@ async def process_audio():
     await cl.Message(content="Processing your request...").send()
 
     agent_start = time.time()
-    result = await process_user_input(transcription)
+    result = await process_user_input(transcription, **get_trace_context())
     agent_elapsed = time.time() - agent_start
 
     await cl.Message(content=result).send()
@@ -282,7 +297,7 @@ async def on_message(message: cl.Message):
         await cl.Message(content="Processing your request... ⏳").send()
 
         # Delegate to Main Agent (handles both saves AND spending queries)
-        result = await process_user_input(message.content)
+        result = await process_user_input(message.content, **get_trace_context())
         await cl.Message(content=result).send()
     else:
         logger.debug("Received empty message, sending help tip")
@@ -328,7 +343,10 @@ async def _handle_image_upload(element: cl.Image):
 
         # Step 2: Delegate extracted text to Main Agent (agent responsibility)
         logger.info(f"Delegating image analysis to Main Agent: '{extracted_text[:100]}{'...' if len(extracted_text) > 100 else ''}'")
-        result = await process_user_input(f"[Receipt Image Analysis: {extracted_text}]")
+        result = await process_user_input(
+            f"[Receipt Image Analysis: {extracted_text}]",
+            **get_trace_context(),
+        )
 
         elapsed = time.time() - start_time
         await cl.Message(content=f"Receipt Processed!\n\n{result}").send()
@@ -375,7 +393,7 @@ async def _handle_audio_upload(element: cl.Audio):
             ).send()
 
             logger.info(f"Delegating transcribed audio to Main Agent")
-            result = await process_user_input(transcription)
+            result = await process_user_input(transcription, **get_trace_context())
             await cl.Message(content=result).send()
         else:
             logger.warning("Transcription returned empty result")

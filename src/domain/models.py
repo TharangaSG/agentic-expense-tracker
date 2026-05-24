@@ -43,6 +43,29 @@ class Message(BaseModel):
     name: Optional[str] = None
 
 
+class MemoryRecord(BaseModel):
+    """Stored conversational message."""
+
+    session_id: str
+    role: str
+    content: str
+    user_id: Optional[str] = None
+    source: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MemorySearchResult(BaseModel):
+    """Semantic memory search result."""
+
+    content: str
+    score: float
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    source: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class ChatRequest(BaseModel):
     """LLM chat completion request"""
     messages: List[Message]

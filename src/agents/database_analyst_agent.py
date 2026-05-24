@@ -8,6 +8,7 @@ import time
 from src.utils.logging_config import get_logger
 from src.config.containers import get_llm_provider, get_async_database, get_embedding_provider
 from src.domain.models import Message, ChatRequest
+from src.observability.langfuse import observe, trace_attributes
 
 logger = get_logger(__name__)
 
@@ -262,54 +263,68 @@ async def _execute_tool(tool_name: str, tool_args: dict) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
-async def ask_analyst(user_question: str) -> str:
+@observe(name="database-analyst.ask")
+async def ask_analyst(
+    user_question: str,
+    *,
+    session_id: str | None = None,
+    user_id: str | None = None,
+    source: str = "unknown",
+) -> str:
     start_time = time.time()
     llm_provider = get_llm_provider()
     logger.info(f"[Analyst] Question: '{user_question}'")
 
-    messages = [
-        Message(role="system", content=ANALYST_SYSTEM_PROMPT),
-        Message(role="user", content=user_question),
-    ]
+    with trace_attributes(
+        user_id=user_id,
+        session_id=session_id,
+        metadata={"source": source, "agent": "database_analyst"},
+    ):
+        messages = [
+            Message(role="system", content=ANALYST_SYSTEM_PROMPT),
+            Message(role="user", content=user_question),
+        ]
 
-    # Comparison questions need: search A → search B → SQL → answer = 3 tool calls
-    max_iterations = 5
+        # Comparison questions need: search A -> search B -> SQL -> answer = 3 tool calls
+        max_iterations = 5
 
-    for iteration in range(max_iterations):
-        chat_request = ChatRequest(
-            messages=messages,
-            model=llm_provider.get_model_name(),
-            tools=ANALYST_TOOLS,
-            tool_choice="required" if iteration == 0 else "auto",
-        )
+        for iteration in range(max_iterations):
+            chat_request = ChatRequest(
+                messages=messages,
+                model=llm_provider.get_model_name(),
+                tools=ANALYST_TOOLS,
+                tool_choice="required" if iteration == 0 else "auto",
+            )
 
-        response = llm_provider.chat_completion(chat_request)
+            response = llm_provider.chat_completion(chat_request)
 
-        if not response.tool_calls:
-            total_elapsed = time.time() - start_time
-            logger.info(f"[Analyst] Done in {total_elapsed:.2f}s ({iteration + 1} iterations)")
-            return response.content or "No data found for your query."
+            if not response.tool_calls:
+                total_elapsed = time.time() - start_time
+                logger.info(f"[Analyst] Done in {total_elapsed:.2f}s ({iteration + 1} iterations)")
+                return response.content or "No data found for your query."
 
-        messages.append(Message(
-            role="assistant",
-            content=response.content or "",
-            tool_calls=response.tool_calls,
-        ))
-
-        for tool_call in response.tool_calls:
-            function_name = tool_call["function"]["name"]
-            function_args = json.loads(tool_call["function"]["arguments"])
-            logger.info(f"[Analyst] Tool call: {function_name}({function_args})")
-
-            tool_result = await _execute_tool(function_name, function_args)
             messages.append(Message(
-                tool_call_id=tool_call["id"],
-                role="tool",
-                name=function_name,
-                content=tool_result,
+                role="assistant",
+                content=response.content or "",
+                tool_calls=response.tool_calls,
             ))
 
-    logger.warning(f"[Analyst] Max iterations reached, summarising...")
-    messages.append(Message(role="user", content="Please summarise whatever results you have so far."))
-    final_response = llm_provider.chat_completion(ChatRequest(messages=messages, model=llm_provider.get_model_name()))
-    return final_response.content or "Could not complete the analysis."
+            for tool_call in response.tool_calls:
+                function_name = tool_call["function"]["name"]
+                function_args = json.loads(tool_call["function"]["arguments"])
+                logger.info(f"[Analyst] Tool call: {function_name}({function_args})")
+
+                tool_result = await _execute_tool(function_name, function_args)
+                messages.append(Message(
+                    tool_call_id=tool_call["id"],
+                    role="tool",
+                    name=function_name,
+                    content=tool_result,
+                ))
+
+        logger.warning("[Analyst] Max iterations reached, summarising...")
+        messages.append(Message(role="user", content="Please summarise whatever results you have so far."))
+        final_response = llm_provider.chat_completion(
+            ChatRequest(messages=messages, model=llm_provider.get_model_name())
+        )
+        return final_response.content or "Could not complete the analysis."

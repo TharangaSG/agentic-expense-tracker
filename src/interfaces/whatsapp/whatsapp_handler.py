@@ -97,7 +97,12 @@ async def whatsapp_handler(request: Request) -> Response:
             logger.info(f"Delegating WhatsApp message to Main Agent: '{content[:100]}{'...' if len(content) > 100 else ''}'")
 
             try:
-                response_message = await process_user_input(content)
+                response_message = await process_user_input(
+                    content,
+                    session_id=f"whatsapp-{from_number}",
+                    user_id=from_number,
+                    source="whatsapp",
+                )
                 elapsed = time.time() - start_time
 
                 logger.info(f"Main Agent response received after {elapsed:.2f}s | Response preview: {response_message[:150]}...")
