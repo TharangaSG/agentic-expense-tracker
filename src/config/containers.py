@@ -16,6 +16,7 @@ from src.ports.tts_port import TTSPort
 from src.ports.vision_port import VisionPort
 from src.ports.database_port import DatabasePort, AsyncDatabasePort
 from src.ports.embedding_port import EmbeddingPort
+from src.ports.memory_port import ShortTermMemoryPort, LongTermMemoryPort
 
 from src.adapters.llm.gemini_adapter import GeminiLLMAdapter
 from src.adapters.llm.groq_adapter import GroqLLMAdapter
@@ -25,6 +26,9 @@ from src.adapters.vision.groq_vision_adapter import GroqVisionAdapter
 from src.adapters.database.sqlite_adapter import SQLiteDatabaseAdapter
 from src.adapters.database.postgres_adapter import PostgresAdapter
 from src.adapters.embedding.gemini_embedding_adapter import GeminiEmbeddingAdapter
+from src.adapters.memory.supabase_short_term_memory import SupabaseShortTermMemory
+from src.adapters.memory.qdrant_long_term_memory import QdrantLongTermMemory
+from src.adapters.memory.memory_manager import MemoryManager, configure_memory_manager
 
 from src.settings import settings
 
@@ -86,6 +90,32 @@ class Container(containers.DeclarativeContainer):
         database_url=settings.DATABASE_URL,
     )
 
+    short_term_memory = providers.Singleton(
+        SupabaseShortTermMemory,
+        database_url=settings.DATABASE_URL,
+        table_name=settings.SUPABASE_MEMORY_TABLE,
+        ttl_hours=settings.SHORT_TERM_MEMORY_TTL_HOURS,
+    )
+
+    long_term_memory = providers.Singleton(
+        QdrantLongTermMemory,
+        url=settings.QDRANT_URL,
+        api_key=settings.QDRANT_API_KEY,
+        collection_name=settings.QDRANT_COLLECTION_NAME,
+        vector_size=settings.MEMORY_EMBEDDING_DIMENSION,
+    )
+
+    memory_manager = providers.Singleton(
+        MemoryManager,
+        short_term_memory=short_term_memory,
+        long_term_memory=long_term_memory,
+        embedding_provider=embedding_provider,
+        short_term_limit=settings.SHORT_TERM_MEMORY_LIMIT,
+        long_term_top_k=settings.MEMORY_TOP_K,
+        min_content_length=settings.MEMORY_MIN_CONTENT_LENGTH,
+        enabled=settings.MEMORY_ENABLED,
+    )
+
 
 # Create and configure the container
 container = Container()
@@ -99,12 +129,14 @@ container.config.embedding_provider.from_value(settings.EMBEDDING_PROVIDER.lower
 # Wire embedding provider into PostgresAdapter
 _db_instance = container.async_database()
 _db_instance.set_embedding_provider(container.embedding_provider())
+configure_memory_manager(container.memory_manager())
 
 logger.info(
     f"Dependency injection container configured | "
     f"LLM: {settings.LLM_PROVIDER} | STT: {settings.STT_PROVIDER} | "
     f"TTS: {settings.TTS_PROVIDER} | Vision: {settings.VISION_PROVIDER} | "
-    f"Embedding: {settings.EMBEDDING_PROVIDER} | Database: {settings.DATABASE_PROVIDER}"
+    f"Embedding: {settings.EMBEDDING_PROVIDER} | Database: {settings.DATABASE_PROVIDER} | "
+    f"Memory: {'enabled' if settings.MEMORY_ENABLED else 'disabled'}"
 )
 
 
@@ -142,6 +174,21 @@ def get_async_database() -> AsyncDatabasePort:
 def get_embedding_provider() -> EmbeddingPort:
     """Get configured embedding provider instance."""
     return container.embedding_provider()
+
+
+def get_short_term_memory() -> ShortTermMemoryPort:
+    """Get configured short-term memory instance."""
+    return container.short_term_memory()
+
+
+def get_long_term_memory() -> LongTermMemoryPort:
+    """Get configured long-term memory instance."""
+    return container.long_term_memory()
+
+
+def get_memory_manager() -> MemoryManager:
+    """Get configured memory manager instance."""
+    return container.memory_manager()
 
 
 def reset_providers():

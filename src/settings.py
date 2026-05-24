@@ -32,6 +32,25 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "gemini-embedding-001"
     EMBEDDING_DIMENSION: int = 768
 
+    # Conversation Memory Configuration
+    MEMORY_ENABLED: bool = True
+    MEMORY_TOP_K: int = 3
+    SHORT_TERM_MEMORY_LIMIT: int = 8
+    SHORT_TERM_MEMORY_TTL_HOURS: int = 24
+    MEMORY_MIN_CONTENT_LENGTH: int = 12
+
+    # Supabase short-term memory
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+    SUPABASE_SCHEMA: str = "public"
+    SUPABASE_MEMORY_TABLE: str = "conversation_messages"
+
+    # Qdrant long-term memory
+    QDRANT_URL: str = ""
+    QDRANT_API_KEY: str = ""
+    QDRANT_COLLECTION_NAME: str = "conversation_memory"
+    MEMORY_EMBEDDING_DIMENSION: int = 768
+
     # Define a threshold for detecting silence and a timeout for ending a turn
     SILENCE_THRESHOLD: int = 3500
     SILENCE_TIMEOUT: float = 1300.  # ms
@@ -40,6 +59,17 @@ class Settings(BaseSettings):
     WHATSAPP_TOKEN: str
     WHATSAPP_PHONE_NUMBER_ID: str
     WHATSAPP_VERIFY_TOKEN: str
+
+    # Telegram Bot API credentials
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_WEBHOOK_SECRET_TOKEN: str = ""
+
+    # Langfuse observability
+    LANGFUSE_ENABLED: bool = True
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_TRACING_ENVIRONMENT: str = "development"
 
 
 # Load settings
@@ -54,4 +84,6 @@ logger.info(
     f"Vision Provider: {settings.VISION_PROVIDER} | Model: {settings.VISION_MODEL_NAME} | "
     f"Embedding Provider: {settings.EMBEDDING_PROVIDER} | Model: {settings.EMBEDDING_MODEL_NAME} | "
     f"Database Provider: {settings.DATABASE_PROVIDER} | "
+    f"Memory Enabled: {settings.MEMORY_ENABLED} | "
+    f"Langfuse Enabled: {settings.LANGFUSE_ENABLED and bool(settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY)} | "
 )

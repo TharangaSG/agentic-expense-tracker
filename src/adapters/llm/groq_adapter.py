@@ -7,7 +7,7 @@ Implements LLMPort interface using Groq via OpenAI SDK.
 import logging
 import time
 
-from openai import OpenAI
+from langfuse.openai import OpenAI
 from src.utils.logging_config import get_logger
 from src.ports.llm_port import LLMPort
 from src.domain.models import ChatRequest, ChatResponse
@@ -56,6 +56,7 @@ class GroqLLMAdapter(LLMPort):
         api_params = {
             "model": request.model or self.model,
             "messages": messages,
+            "name": "groq-chat-completion",
         }
 
         # Add optional parameters

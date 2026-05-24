@@ -10,9 +10,10 @@ The Main Agent acts as a router and communicator:
 import json
 import time
 from src.utils.logging_config import get_logger
-from src.config.containers import get_llm_provider, get_async_database
+from src.config.containers import get_llm_provider, get_async_database, get_memory_manager
 from src.domain.models import Receipt, Message, ChatRequest
 from src.agents.database_analyst_agent import ask_analyst
+from src.observability.langfuse import observe, trace_attributes, trace_url
 
 logger = get_logger(__name__)
 
@@ -98,7 +99,14 @@ When a user asks about their spending history (e.g., "How much did I spend on su
 """
 
 
-async def process_user_input(user_input: str) -> str:
+@observe(name="main-agent.process-user-input")
+async def process_user_input(
+    user_input: str,
+    *,
+    session_id: str | None = None,
+    user_id: str | None = None,
+    source: str = "unknown",
+) -> str:
     """
     Process user input and return formatted response.
     
@@ -114,9 +122,38 @@ async def process_user_input(user_input: str) -> str:
     logger.info(f"Processing user input: '{user_input[:100]}{'...' if len(user_input) > 100 else ''}'")
 
     try:
+        with trace_attributes(
+            user_id=user_id,
+            session_id=session_id,
+            metadata={"source": source, "agent": "main"},
+        ):
+            return await _process_user_input_impl(
+                user_input,
+                source=source,
+                session_id=session_id,
+                user_id=user_id,
+            )
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"Error processing user input after {elapsed:.2f}s: {e}", exc_info=True)
+        return f"Error processing your message: {str(e)}"
+
+
+async def _process_user_input_impl(
+    user_input: str,
+    *,
+    source: str,
+    session_id: str | None,
+    user_id: str | None,
+) -> str:
+    start_time = time.time()
+
+    try:
         # Get providers
         llm_provider = get_llm_provider()
         db = get_async_database()
+        memory_manager = get_memory_manager()
 
         logger.debug(f"LLM provider: {llm_provider.get_model_name()}")
 
@@ -124,19 +161,37 @@ async def process_user_input(user_input: str) -> str:
         if db.pool is None:
             logger.info("Database pool not initialized, connecting...")
             await db.connect()
+
+        try:
+            memory_messages, long_term_context = await memory_manager.build_context(
+                session_id=session_id,
+                user_id=user_id,
+                source=source,
+                user_input=user_input,
+            )
+        except Exception as exc:
+            logger.warning(f"Memory context retrieval failed, continuing without memory: {exc}")
+            memory_messages, long_term_context = [], None
+
+        messages = [
+            Message(
+                role="system",
+                content=ORCHESTRATOR_SYSTEM_PROMPT,
+            ),
+        ]
+        if long_term_context:
+            messages.append(Message(role="system", content=long_term_context))
+        messages.extend(memory_messages)
+        messages.append(
+            Message(
+                role="user",
+                content=user_input,
+            )
+        )
         
         # Create chat request
         chat_request = ChatRequest(
-            messages=[
-                Message(
-                    role="system",
-                    content=ORCHESTRATOR_SYSTEM_PROMPT,
-                ),
-                Message(
-                    role="user",
-                    content=user_input,
-                ),
-            ],
+            messages=messages,
             model=llm_provider.get_model_name(),
             tools=tools,
             tool_choice="auto",
@@ -144,6 +199,9 @@ async def process_user_input(user_input: str) -> str:
 
         logger.debug("Sending request to LLM...")
         response = llm_provider.chat_completion(chat_request)
+        current_trace_url = trace_url()
+        if current_trace_url:
+            logger.info(f"Langfuse trace: {current_trace_url}")
 
         # Log LLM response metadata
         if response.usage:
@@ -163,13 +221,32 @@ async def process_user_input(user_input: str) -> str:
 
                 if function_name == "save_data_to_db":
                     result = await _handle_save_receipt(function_args)
+                    await _store_memory_turn_safe(
+                        memory_manager,
+                        session_id=session_id,
+                        user_id=user_id,
+                        source=source,
+                        user_input=user_input,
+                        assistant_response=result,
+                    )
                     elapsed = time.time() - start_time
                     logger.info(f"Save receipt completed in {elapsed:.2f}s")
                     return result
 
                 elif function_name == "ask_database_analyst":
                     result = await _handle_ask_analyst(
-                        function_args, tool_call, chat_request
+                        function_args,
+                        tool_call,
+                        chat_request,
+                        source=source,
+                    )
+                    await _store_memory_turn_safe(
+                        memory_manager,
+                        session_id=session_id,
+                        user_id=user_id,
+                        source=source,
+                        user_input=user_input,
+                        assistant_response=result,
                     )
                     elapsed = time.time() - start_time
                     logger.info(f"Ask analyst completed in {elapsed:.2f}s")
@@ -177,12 +254,41 @@ async def process_user_input(user_input: str) -> str:
 
         elapsed = time.time() - start_time
         logger.info(f"Direct response (no tool calls) completed in {elapsed:.2f}s")
-        return response.content
+        await _store_memory_turn_safe(
+            memory_manager,
+            session_id=session_id,
+            user_id=user_id,
+            source=source,
+            user_input=user_input,
+            assistant_response=response.content or "",
+        )
+        return response.content or ""
 
     except Exception as e:
         elapsed = time.time() - start_time
         logger.error(f"Error processing user input after {elapsed:.2f}s: {e}", exc_info=True)
         return f"Error processing your message: {str(e)}"
+
+
+async def _store_memory_turn_safe(
+    memory_manager,
+    *,
+    session_id: str | None,
+    user_id: str | None,
+    source: str,
+    user_input: str,
+    assistant_response: str,
+) -> None:
+    try:
+        await memory_manager.store_turn(
+            session_id=session_id,
+            user_id=user_id,
+            source=source,
+            user_input=user_input,
+            assistant_response=assistant_response,
+        )
+    except Exception as exc:
+        logger.warning(f"Memory persistence failed, continuing without blocking the response: {exc}")
 
 
 async def _handle_save_receipt(function_args: dict) -> str:
@@ -229,6 +335,8 @@ async def _handle_ask_analyst(
     function_args: dict,
     tool_call: dict,
     chat_request: ChatRequest,
+    *,
+    source: str,
 ) -> str:
     """
     Handle the ask_database_analyst tool call.
@@ -244,7 +352,7 @@ async def _handle_ask_analyst(
     analyst_start = time.time()
 
     # Call the Database Analyst Agent
-    analyst_response = await ask_analyst(question)
+    analyst_response = await ask_analyst(question, source=source)
 
     analyst_elapsed = time.time() - analyst_start
     logger.info(
