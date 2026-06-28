@@ -3,6 +3,9 @@
 A comprehensive AI-powered financial assistant that helps users track their purchases and expenses through multiple interfaces including a web chat interface and WhatsApp integration. The bot can process text descriptions, receipt images, and voice messages to automatically extract and store purchase data.
 
 
+https://github.com/user-attachments/assets/e4ee9710-8e82-43cb-88d2-8d062bfee642
+
+
 https://github.com/user-attachments/assets/238527fb-1692-41fd-8084-8e5b60a52362
 
 
