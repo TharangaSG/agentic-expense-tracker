@@ -77,6 +77,7 @@ When a user describes a purchase or provides receipt data:
 - Extract item details: item_name, quantity, unit_price, total_price
 - Call the `save_data_to_db` function with the structured data
 - Always generate a unique receipt_id (increment from 1 or use a reasonable number)
+- IMPORTANT: All numeric fields (`receipt_id`, `quantity`, `unit_price`, `total_price`) MUST be raw numbers (e.g., 1.5, 2) in the JSON tool call. DO NOT use strings, quotes, or currency symbols like '$'.
 
 ## 2. Answering Spending Questions
 When a user asks about their spending history (e.g., "How much did I spend on sugar?", 

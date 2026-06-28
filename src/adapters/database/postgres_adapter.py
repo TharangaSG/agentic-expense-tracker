@@ -275,25 +275,31 @@ class PostgresAdapter(AsyncDatabasePort):
         """
         Search for items with similar name embeddings using pgvector cosine distance.
 
-        Returns distinct item names with their similarity scores.
+        Returns distinct item names with their similarity scores,
+        globally sorted by similarity (highest first).
         """
         if not self.pool:
             raise RuntimeError("Database pool not initialized. Call connect() first.")
 
         try:
+            # Convert embedding to numpy float32 (required for pgvector)
             embedding_np = np.array(query_embedding, dtype=np.float32)
 
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT DISTINCT ON (item_name)
-                        item_name,
-                        1 - (item_name_embedding <=> $1) AS similarity_score,
-                        total_price,
-                        purchase_date
-                    FROM items
-                    WHERE item_name_embedding IS NOT NULL
-                    ORDER BY item_name, item_name_embedding <=> $1
+                    SELECT *
+                    FROM (
+                        SELECT DISTINCT ON (item_name)
+                            item_name,
+                            1 - (item_name_embedding <=> $1) AS similarity_score,
+                            total_price,
+                            purchase_date
+                        FROM items
+                        WHERE item_name_embedding IS NOT NULL
+                        ORDER BY item_name, item_name_embedding <=> $1
+                    ) sub
+                    ORDER BY similarity_score DESC
                     LIMIT $2
                     """,
                     embedding_np,
@@ -317,61 +323,3 @@ class PostgresAdapter(AsyncDatabasePort):
         except Exception as e:
             logger.error(f"Error searching similar items: {e}")
             return []
-        
-    ##### have to check this later this is a better approch
-    # async def search_similar_items(
-    #     self,
-    #     query_embedding: List[float],
-    #     limit: int = 5,
-    # ) -> List[Dict[str, Any]]:
-    #     """
-    #     Search for items with similar name embeddings using pgvector cosine distance.
-
-    #     Returns distinct item names with their similarity scores,
-    #     globally sorted by similarity (highest first).
-    #     """
-    #     if not self.pool:
-    #         raise RuntimeError("Database pool not initialized. Call connect() first.")
-
-    #     try:
-    #         # Convert embedding to numpy float32 (required for pgvector)
-    #         embedding_np = np.array(query_embedding, dtype=np.float32)
-
-    #         async with self.pool.acquire() as conn:
-    #             rows = await conn.fetch(
-    #                 """
-    #                 SELECT *
-    #                 FROM (
-    #                     SELECT DISTINCT ON (item_name)
-    #                         item_name,
-    #                         1 - (item_name_embedding <=> $1) AS similarity_score,
-    #                         total_price,
-    #                         purchase_date
-    #                     FROM items
-    #                     WHERE item_name_embedding IS NOT NULL
-    #                     ORDER BY item_name, item_name_embedding <=> $1
-    #                 ) sub
-    #                 ORDER BY similarity_score DESC
-    #                 LIMIT $2
-    #                 """,
-    #                 embedding_np,
-    #                 limit,
-    #             )
-
-    #             return [
-    #                 {
-    #                     "item_name": row["item_name"],
-    #                     "similarity_score": float(row["similarity_score"]),
-    #                     "total_price": float(row["total_price"]),
-    #                     "purchase_date": (
-    #                         row["purchase_date"].isoformat()
-    #                         if row["purchase_date"]
-    #                         else None
-    #                     ),
-    #                 }
-    #                 for row in rows
-    #             ]
-
-    #     except Exception as e:
-    #         logger.error(f"Error searching similar items: {e}")
-    #         return []

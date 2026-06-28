@@ -9,7 +9,7 @@ https://github.com/user-attachments/assets/238527fb-1692-41fd-8084-8e5b60a52362
 
 ## 🚀 Features
 
-- **Multi-Interface Support**: Web interface (Chainlit), WhatsApp integration
+- **Multi-Interface Support**: Web interface (Chainlit), WhatsApp, and Telegram integrations
 - **Multiple Input Methods**: 
   - Text descriptions of purchases
   - Receipt image analysis
@@ -44,6 +44,7 @@ The project follows a port-adapter architecture with dependency injection:
   - Groq (optional, for LLM/Vision)
   - ElevenLabs (for text-to-speech)
   - WhatsApp Business API (for WhatsApp integration)
+  - Telegram Bot Token (for Telegram integration)
 - Database credentials for:
   - Supabase (PostgreSQL)
   - Qdrant (Vector Database)
@@ -98,6 +99,18 @@ Available at `http://localhost:8000`
    uvicorn src.interfaces.whatsapp.whatsapp_app:app --host 0.0.0.0 --port 8001
    ```
 
+### Telegram Integration
+
+1. Create a new bot via [BotFather](https://t.me/BotFather) on Telegram and get your Bot Token.
+2. Ensure your `TELEGRAM_BOT_TOKEN` is set in the `.env` file.
+3. Start the server:
+   ```bash
+   python run_telegram.py
+   # or
+   uvicorn src.interfaces.telegram.telegram_app:app --host 0.0.0.0 --port 8002
+   ```
+4. Configure your Telegram bot's webhook to point to `https://your-domain.com/telegram/webhook`.
+
 
 ## 📊 Example Usage
 
@@ -144,6 +157,9 @@ docker build -t financial-assistant .
 
 # Run the WhatsApp webhook server
 docker run -p 8001:8001 --env-file .env financial-assistant
+
+# Run the Telegram webhook server
+docker run -p 8002:8002 --env-file .env financial-assistant
 ```
 
 ## 🔧 Configuration

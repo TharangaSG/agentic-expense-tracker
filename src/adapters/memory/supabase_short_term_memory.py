@@ -133,7 +133,7 @@ class SupabaseShortTermMemory(ShortTermMemoryPort):
                 source=row["source"],
                 role=row["role"],
                 content=row["content"],
-                metadata=row["metadata"] or {},
+                metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
                 created_at=row["created_at"],
             )
             for row in reversed(rows)

@@ -54,14 +54,18 @@ class GeminiSTTAdapter(STTPort):
         # Encode audio data to base64
         base64_audio = base64.b64encode(request.audio_data).decode("utf-8")
 
-        # Prepare message content
+        # Prepare message content 
+        api_format = request.format.value
+        if api_format == "ogg":
+            api_format = "mp3"
+
         content = [
             {"type": "text", "text": "Transcribe this audio"},
             {
                 "type": "input_audio",
                 "input_audio": {
                     "data": base64_audio,
-                    "format": request.format.value
+                    "format": api_format
                 }
             }
         ]

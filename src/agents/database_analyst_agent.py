@@ -62,6 +62,7 @@ RULES:
 - For date ranges, always use parameterised intervals, not hardcoded dates.
 - Return amounts formatted as currency where relevant.
 - If no results found, say so clearly — do not guess.
+- IMPORTANT: When calling tools, use the native JSON tool calling format. NEVER output raw `<function=...>` XML tags in your text response.
 """
 
 ANALYST_TOOLS = [
@@ -82,12 +83,7 @@ ANALYST_TOOLS = [
                     "query": {
                         "type": "string",
                         "description": "The item name or category from the user's question.",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max results to return. Default 5.",
-                        "default": 5,
-                    },
+                    }
                 },
                 "required": ["query"],
             },
@@ -293,7 +289,7 @@ async def ask_analyst(
                 messages=messages,
                 model=llm_provider.get_model_name(),
                 tools=ANALYST_TOOLS,
-                tool_choice="required" if iteration == 0 else "auto",
+                tool_choice="auto",
             )
 
             response = llm_provider.chat_completion(chat_request)
