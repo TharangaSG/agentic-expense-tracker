@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # Model Configuration
-    MAIN_MODEL_NAME: str = "llama-3.3-70b-versatile"
+    MAIN_MODEL_NAME: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     VISION_MODEL_NAME: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     ELEVENLABS_VOICE_ID: str = "Xb7hH8MSUJpSbSDYk0k2"
     STT_MODEL_NAME: str = "gemini-2.5-flash"
